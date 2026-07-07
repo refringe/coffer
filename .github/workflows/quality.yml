@@ -1,0 +1,155 @@
+name: quality
+
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  composer-validate:
+    name: Validate composer.json
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup
+        uses: ./.github/action/setup
+
+      - name: Validate composer.json
+        run: composer validate --strict
+
+  composer-psr:
+    name: Check Namespaces
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup
+        uses: ./.github/action/setup
+
+      - name: Install Composer Dependencies
+        run: composer install -q --no-interaction --no-progress --prefer-dist
+
+      - name: Check PSR-4 Mapping
+        run: composer dump-autoload --dev --optimize --strict-psr
+
+  pint:
+    name: Code Style
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup
+        uses: ./.github/action/setup
+
+      - name: Install Composer Dependencies
+        run: composer install -q --no-interaction --no-progress --prefer-dist --optimize-autoloader
+
+      - name: Run Pint
+        run: composer pint:check
+
+  rector:
+    name: Code Modernization
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup
+        uses: ./.github/action/setup
+
+      - name: Install Composer Dependencies
+        run: composer install -q --no-interaction --no-progress --prefer-dist --optimize-autoloader
+
+      - name: Prepare Environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Rector Cache
+        uses: actions/cache@v5
+        with:
+          path: .rector/cache
+          key: ${{ runner.os }}-rector-${{ github.run_id }}
+          restore-keys: ${{ runner.os }}-rector-
+
+      - name: Run Rector
+        run: composer rector:check
+
+  phpstan:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup
+        uses: ./.github/action/setup
+
+      - name: Install Composer Dependencies
+        run: composer install -q --no-interaction --no-progress --prefer-dist --optimize-autoloader
+
+      - name: Prepare Environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: PHPStan Cache
+        uses: actions/cache@v5
+        with:
+          path: /tmp/phpstan
+          key: ${{ runner.os }}-phpstan-${{ hashFiles('phpstan.neon') }}-${{ github.run_id }}
+          restore-keys: ${{ runner.os }}-phpstan-${{ hashFiles('phpstan.neon') }}-
+
+      - name: Run PHPStan
+        run: composer phpstan
+
+  typos:
+    name: Spell Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Search For Misspellings
+        uses: crate-ci/typos@v1
+        with:
+          config: ./typos.toml
+
+  frontend:
+    name: Frontend Formatting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup
+        uses: ./.github/action/setup
+
+      - name: Install NPM Dependencies
+        run: npm ci
+
+      - name: Check Formatting
+        run: npm run test:lint

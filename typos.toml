@@ -1,0 +1,26 @@
+[default]
+locale = "en-ca"
+
+[default.extend-words]
+monolog = "monolog"
+Monolog = "Monolog"
+organisations = "organisations"
+
+[files]
+extend-exclude = [
+    "/vendor/",
+    "/node_modules/",
+    "/bootstrap/cache/",
+    "/public/build/",
+    "/public/vendor/",
+    "/storage/",
+    "/public/robots.txt",
+    "/package-lock.json",
+    "/artisan",
+    "/pint.json",
+    "/rector.php",
+    "/phpunit.xml",
+    "/composer.lock",
+    "*.min.*",
+    ".gitignore",
+]

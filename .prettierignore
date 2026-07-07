@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+vendor/
+
+# Build outputs
+public/build/
+public/hot
+public/vendor/
+bootstrap/cache/
+
+# Storage
+storage/
+
+# Environment
+.env
+
+# Compiled files
+*.min.js
+*.min.css
+
+# Lock files
+package-lock.json
+composer.lock

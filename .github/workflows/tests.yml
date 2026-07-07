@@ -1,0 +1,79 @@
+name: tests
+
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Tests (${{ matrix.suite }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: feature-unit
+            pest-args: --exclude-group=browser
+          - suite: browser
+            pest-args: --group=browser
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup
+        uses: ./.github/action/setup
+
+      - name: Install Composer Dependencies
+        run: composer install -q --no-interaction --no-progress --prefer-dist --optimize-autoloader
+
+      - name: Install NPM Dependencies
+        run: npm ci
+
+      - name: Prepare Environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Build Assets
+        run: npm run build
+
+      - name: Install Playwright Browsers
+        if: matrix.suite == 'browser'
+        run: npx playwright install --with-deps
+
+      - name: Run Tests
+        run: ./vendor/bin/pest --ci --parallel ${{ matrix.pest-args }}
+
+  type-coverage:
+    name: Type Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup
+        uses: ./.github/action/setup
+
+      - name: Install Composer Dependencies
+        run: composer install -q --no-interaction --no-progress --prefer-dist --optimize-autoloader
+
+      - name: Prepare Environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Run Type Coverage
+        run: composer coverage

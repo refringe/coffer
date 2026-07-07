@@ -1,0 +1,25 @@
+# FrankenPHP / Caddy configuration for Coffer.
+#
+# Serves the Laravel public/ directory over plain HTTP on the port given by
+# SERVER_NAME (default :8080). The expectation for self-hosting is that a
+# reverse proxy in front terminates TLS. To let FrankenPHP handle HTTPS
+# directly instead, set SERVER_NAME to your domain and publish ports 80/443.
+
+{
+	{$CADDY_GLOBAL_OPTIONS}
+
+	frankenphp
+
+	# No automatic HTTPS by default (served behind a proxy on a bare port).
+	auto_https off
+}
+
+{$SERVER_NAME:":8080"} {
+	root /app/public
+	encode zstd br gzip
+
+	# Serves static files and routes everything else through index.php.
+	php_server
+
+	{$CADDY_SERVER_EXTRA_DIRECTIVES}
+}

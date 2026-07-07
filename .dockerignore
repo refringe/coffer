@@ -1,0 +1,42 @@
+# Rebuilt inside the image
+/vendor
+/node_modules
+/public/build
+/public/hot
+/public/storage
+
+# Local state — never bake into the image
+/.env
+/.env.*
+/database/database.sqlite
+/storage/app/private/*
+/storage/app/public/*
+/storage/framework/cache/*
+/storage/framework/sessions/*
+/storage/framework/views/*
+/storage/logs/*
+/storage/pail
+auth.json
+
+# VCS, CI, and dev tooling not needed at runtime
+/.git
+/.github
+/.fleet
+/.idea
+/.nova
+/.vscode
+/.zed
+/.agents
+/.claude
+/.cursor
+/.junie
+/tests
+/.phpunit.cache
+/.phpunit.result.cache
+/.rector
+
+# Docs / agent context
+AGENTS.md
+CLAUDE.md
+boost.json
+solo.yml

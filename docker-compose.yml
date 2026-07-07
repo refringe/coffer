@@ -1,0 +1,52 @@
+# Self-hosting setup for Coffer.
+#
+# The app container runs the web server, queue worker, and scheduler. SQLite and
+# other on-box state live in the named "data" volume; uploaded files live on the
+# local filesystem under /data/shares (the "shares" volume).
+#
+#   1. Copy .env.docker.example to .env and set APP_KEY, APP_URL, and the
+#      GITHUB_* sign-in values (the README walks through registering an OAuth App).
+#   2. docker compose up -d
+#   3. Sign in with GitHub. The first organization owner becomes the administrator
+#      and creates shares from the admin area; their files are stored on this server.
+#
+# Per-share storage: every share lives in its own directory under /data/shares
+# (COFFER_STORAGE_PATH). By default they all share the "shares" volume. To put a
+# share on its own host directory or disk, uncomment one of the example mounts
+# below, then create the share in the UI with a matching path (e.g.
+# /data/shares/marketing). Uploads stream through the app; raise the proxy/PHP
+# body-size limits (docker/Caddyfile) if you need large files.
+#
+# Generate an APP_KEY once with:
+#   docker compose run --rm app php artisan key:generate --show
+
+services:
+  app:
+    image: ghcr.io/refringe/coffer:latest
+    # To build locally instead of pulling, comment out `image:` above and use:
+    # build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      # Host port is configurable via COFFER_HTTP_PORT (default 8777); the
+      # container always listens on 8080. Point your reverse proxy at this port.
+      - "${COFFER_HTTP_PORT:-8777}:8080"
+    volumes:
+      - data:/data
+      - shares:/data/shares            # default base; all shares persist here
+      # Mount individual shares onto their own host directory or volume. Create
+      # the share in the UI with a matching path (e.g. /data/shares/marketing):
+      # - /mnt/big-disk/marketing:/data/shares/marketing
+      # - photos:/data/shares/photos    # (a named volume; declare it below)
+      # - /srv/legal-archive:/data/shares/legal:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/up"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  data:
+  shares:
+  # photos:
