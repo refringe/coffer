@@ -148,6 +148,9 @@ jobs:
       - name: Setup
         uses: ./.github/action/setup
 
+      - name: Install Composer Dependencies
+        run: composer install -q --no-interaction --no-progress --prefer-dist
+
       - name: Install NPM Dependencies
         run: npm ci
 
