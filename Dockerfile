@@ -63,10 +63,10 @@ RUN install-php-extensions \
         zip \
     && cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
 
-# Uploads arrive as resumable 50 MB chunks (config/coffer.php), so a request body never spans a whole file;
+# Uploads arrive as resumable 90 MB chunks (config/coffer.php), so a request body never spans a whole file;
 # post_max_size only needs to clear one chunk.
 RUN { \
-        echo 'post_max_size = 64M'; \
+        echo 'post_max_size = 100M'; \
         echo 'max_execution_time = 600'; \
     } > "$PHP_INI_DIR/conf.d/zz-coffer-uploads.ini"
 

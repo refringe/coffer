@@ -23,13 +23,13 @@ return [
     | Upload Chunk Size
     |--------------------------------------------------------------------------
     |
-    | The size, in bytes, of each chunk the browser uploader sends while transferring a file (50 MB). Every chunk
-    | must fit inside a single HTTP request, so this value has to stay below PHP's post_max_size and any request-body
-    | limit enforced by a proxy in front of the app.
+    | The size, in bytes, of each chunk the browser uploader sends while transferring a file (90 MB). Every chunk must
+    | fit inside a single HTTP request, so this value has to stay below PHP's post_max_size and any request-body limit
+    | enforced by a proxy in front of the app; the default sits under Cloudflare's 100 MB request-body cap.
     |
     */
 
-    'upload_chunk_size' => 52428800,
+    'upload_chunk_size' => 94371840,
 
     /*
     |--------------------------------------------------------------------------
