@@ -151,6 +151,13 @@ test('selecting multiple files queues them all visibly and uploads every one', f
         ->assertSeeIn('[data-test="upload-progress"]', 'second-multi.txt')
         ->assertSeeIn('[data-test="upload-progress"]', 'third-multi.txt');
 
+    // Each queue item reports Done only after its final chunk landed and the server promoted the file, so these
+    // retrying assertions hold the test open until every upload has finalized (tus retry backoff can stretch a
+    // transfer past a single assertion window).
+    $page->assertSeeIn('[data-test="upload-item"]:nth-of-type(1)', 'Done')
+        ->assertSeeIn('[data-test="upload-item"]:nth-of-type(2)', 'Done')
+        ->assertSeeIn('[data-test="upload-item"]:nth-of-type(3)', 'Done');
+
     // A listing row (scoped to the entries table, which excludes the floating panel) only appears once that file
     // finalized and the event-driven reload ran.
     $page->assertSeeIn('[data-test="entries"]', 'first-multi.txt')

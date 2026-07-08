@@ -54,6 +54,14 @@ jobs:
       - name: Run Tests
         run: ./vendor/bin/pest --ci --parallel ${{ matrix.pest-args }}
 
+      - name: Upload Failure Screenshots
+        if: failure() && matrix.suite == 'browser'
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-screenshots
+          path: tests/Browser/Screenshots/
+          if-no-files-found: ignore
+
   type-coverage:
     name: Type Coverage
     runs-on: ubuntu-latest
