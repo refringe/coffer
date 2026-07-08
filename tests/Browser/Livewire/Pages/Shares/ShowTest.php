@@ -153,17 +153,21 @@ test('selecting multiple files queues them all visibly and uploads every one', f
 
     // Each queue item reports Done only after its final chunk landed and the server promoted the file, so these
     // retrying assertions hold the test open until every upload has finalized (tus retry backoff can stretch a
-    // transfer past a single assertion window).
-    $page->assertSeeIn('[data-test="upload-item"]:nth-of-type(1)', 'Done')
-        ->assertSeeIn('[data-test="upload-item"]:nth-of-type(2)', 'Done')
-        ->assertSeeIn('[data-test="upload-item"]:nth-of-type(3)', 'Done');
+    // transfer past a single assertion window). Items are matched by name because a finished item dismisses itself
+    // after a few seconds, which would shift positional selectors.
+    $page->assertSeeIn('[data-test="upload-item"]:has-text("first-multi.txt")', 'Done')
+        ->assertSeeIn('[data-test="upload-item"]:has-text("second-multi.txt")', 'Done')
+        ->assertSeeIn('[data-test="upload-item"]:has-text("third-multi.txt")', 'Done');
+
+    // A client-side failure of the listing refresh (a rejected Livewire commit) surfaces here with its console
+    // message, rather than as an opaque missing-row failure below.
+    $page->assertNoJavaScriptErrors();
 
     // A listing row (scoped to the entries table, which excludes the floating panel) only appears once that file
     // finalized and the event-driven reload ran.
     $page->assertSeeIn('[data-test="entries"]', 'first-multi.txt')
         ->assertSeeIn('[data-test="entries"]', 'second-multi.txt')
-        ->assertSeeIn('[data-test="entries"]', 'third-multi.txt')
-        ->assertNoJavaScriptErrors();
+        ->assertSeeIn('[data-test="entries"]', 'third-multi.txt');
 
     expect(file_get_contents($share->path.'/first-multi.txt'))->toBe(str_repeat('a', 3072))
         ->and(file_get_contents($share->path.'/second-multi.txt'))->toBe(str_repeat('b', 3072))

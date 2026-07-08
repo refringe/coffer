@@ -157,6 +157,7 @@ document.addEventListener("alpine:init", () => {
     window.Alpine.data("uploader", (endpoint, csrf, chunkSize) => ({
         dragging: false,
         conflict: null,
+        reloadTimer: null,
 
         async onDrop(event) {
             this.dragging = false;
@@ -198,9 +199,14 @@ document.addEventListener("alpine:init", () => {
         },
 
         onFinished(event) {
-            if (event.detail.endpoint === endpoint) {
-                this.$wire.reload();
+            if (event.detail.endpoint !== endpoint) {
+                return;
             }
+
+            // A burst of finishing uploads folds into a single listing refresh instead of one server round trip per
+            // file.
+            window.clearTimeout(this.reloadTimer);
+            this.reloadTimer = window.setTimeout(() => this.$wire.reload(), 150);
         },
 
         askConflict(name) {
