@@ -10,7 +10,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Share;
 use App\Models\User;
 use Illuminate\Http\Request;
-use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 final class DownloadFileController extends Controller
 {
@@ -19,9 +19,9 @@ final class DownloadFileController extends Controller
     public function __construct(private readonly ShareStorageResolver $storage) {}
 
     /**
-     * Stream a file from the share's storage, either as an attachment download or inline (for in-browser preview).
+     * Deliver a file from the share's storage, either as an attachment download or inline (for in-browser preview).
      */
-    public function __invoke(Request $request, Share $share): StreamedResponse
+    public function __invoke(Request $request, Share $share): BinaryFileResponse
     {
         $user = $request->user();
 

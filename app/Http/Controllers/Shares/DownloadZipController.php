@@ -15,7 +15,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Cache;
-use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 final class DownloadZipController extends Controller
 {
@@ -29,7 +29,7 @@ final class DownloadZipController extends Controller
      * and a later hit streams the archive once it is ready. A single file skips the archive entirely and a synchronous
      * queue completes on the first hit.
      */
-    public function __invoke(Request $request, Share $share): StreamedResponse|View|Response
+    public function __invoke(Request $request, Share $share): BinaryFileResponse|View|Response
     {
         $user = $request->user();
 

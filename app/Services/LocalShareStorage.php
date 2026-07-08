@@ -20,7 +20,8 @@ use InvalidArgumentException;
 use League\Flysystem\UnableToReadFile;
 use League\Flysystem\UnableToRetrieveMetadata;
 use RuntimeException;
-use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\HeaderUtils;
 
 /**
  * A share's storage backed by a real local directory tree. Every browser-facing path is relative to the share's own
@@ -249,12 +250,12 @@ final readonly class LocalShareStorage implements ShareStorage
         $this->disk->writeStream($path, $resource);
     }
 
-    public function download(string $path, ?string $name = null): StreamedResponse
+    public function download(string $path, ?string $name = null): BinaryFileResponse
     {
-        return $this->disk->download($this->guard($path), $name);
+        return $this->fileResponse($path, $name, HeaderUtils::DISPOSITION_ATTACHMENT);
     }
 
-    public function stream(string $path, ?string $name = null): StreamedResponse
+    public function stream(string $path, ?string $name = null): BinaryFileResponse
     {
         // Inline preview serves the file under the application's own origin. The sandbox policy stops an uploaded HTML
         // or SVG file from executing scripts when opened directly, and nosniff stops the browser from re-typing it.
@@ -263,7 +264,7 @@ final readonly class LocalShareStorage implements ShareStorage
             'X-Content-Type-Options' => 'nosniff',
         ];
 
-        return $this->disk->response($this->guard($path), $name, $headers, 'inline');
+        return $this->fileResponse($path, $name, HeaderUtils::DISPOSITION_INLINE, $headers);
     }
 
     public function trash(string $path, ?int $userId): TrashedEntry
@@ -545,6 +546,25 @@ final readonly class LocalShareStorage implements ShareStorage
         }
 
         return $purged;
+    }
+
+    /**
+     * Build a file delivery response. The response streams the file from disk in small chunks and honors HTTP range
+     * requests; when the request carries the X-Sendfile-Type and X-Accel-Mapping headers (set by the production web
+     * server), it instead sends no body and names the file in an X-Accel-Redirect header for the web server to serve
+     * directly.
+     *
+     * @param  array<string, string>  $headers
+     */
+    private function fileResponse(string $path, ?string $name, string $disposition, array $headers = []): BinaryFileResponse
+    {
+        $path = $this->guard($path);
+        $name ??= basename($path);
+
+        $response = new BinaryFileResponse($this->disk->path($path), 200, $headers, false);
+        $response->setContentDisposition($disposition, $name, str_replace('%', '', Str::ascii($name)));
+
+        return $response;
     }
 
     /**

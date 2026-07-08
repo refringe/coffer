@@ -12,7 +12,7 @@ use App\Support\PendingUpload;
 use App\Support\TrashedEntry;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
-use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 /**
  * A share's storage, backed by a real local directory tree of which the share is the sole writer. Every path is
@@ -134,12 +134,12 @@ interface ShareStorage
     /**
      * Build an attachment download response for a file.
      */
-    public function download(string $path, ?string $name = null): StreamedResponse;
+    public function download(string $path, ?string $name = null): BinaryFileResponse;
 
     /**
      * Build an inline (preview) response for a file.
      */
-    public function stream(string $path, ?string $name = null): StreamedResponse;
+    public function stream(string $path, ?string $name = null): BinaryFileResponse;
 
     /**
      * Send a file or folder to the recycle bin, recording who deleted it.

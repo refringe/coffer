@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 final class AppServiceProvider extends ServiceProvider
 {
@@ -57,6 +58,10 @@ final class AppServiceProvider extends ServiceProvider
     private function configureDefaults(): void
     {
         Date::use(CarbonImmutable::class);
+
+        // File responses honor the X-Sendfile-Type and X-Accel-Mapping request headers (set by the production web
+        // server), replacing their body with an X-Accel-Redirect header so the web server transfers the file itself.
+        BinaryFileResponse::trustXSendfileTypeHeader();
 
         DB::prohibitDestructiveCommands(
             app()->isProduction(),

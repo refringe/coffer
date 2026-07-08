@@ -18,6 +18,24 @@
 	root /app/public
 	encode zstd br gzip
 
+	# Marks every request so PHP file responses skip their body and name the file (relative to the storage root) in
+	# an X-Accel-Redirect response header instead. Setting these here also overrides any client-supplied values.
+	request_header X-Sendfile-Type x-accel-redirect
+	request_header X-Accel-Mapping {$COFFER_STORAGE_PATH:/data/shares}/=/
+
+	# Catches responses carrying X-Accel-Redirect and serves the named file straight from disk (sendfile, HTTP range
+	# support), so file bytes never flow through PHP.
+	intercept {
+		@accel header X-Accel-Redirect *
+		handle_response @accel {
+			root {$COFFER_STORAGE_PATH:/data/shares}
+			rewrite * {resp.header.X-Accel-Redirect}
+			method * GET
+			header -X-Accel-Redirect
+			file_server
+		}
+	}
+
 	# Serves static files and routes everything else through index.php.
 	php_server
 
