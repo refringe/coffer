@@ -6,8 +6,11 @@ namespace App\Providers;
 
 use App\Contracts\ShareStorageResolver;
 use App\Models\User;
+use App\Services\RemoteFileDownloader;
 use App\Services\ShareStorageManager;
 use Carbon\CarbonImmutable;
+use GuzzleHttp\Client;
+use GuzzleHttp\ClientInterface;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
@@ -24,6 +27,10 @@ final class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->bind(ShareStorageResolver::class, ShareStorageManager::class);
+
+        $this->app->when(RemoteFileDownloader::class)
+            ->needs(ClientInterface::class)
+            ->give(Client::class);
     }
 
     /**

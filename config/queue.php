@@ -42,7 +42,8 @@ return [
             'connection' => env('DB_QUEUE_CONNECTION'),
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
-            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 90),
+            // Exceeds the two-hour DownloadFileFromUrl job timeout so a reserved job is never redelivered mid-run.
+            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 7260),
             'after_commit' => false,
         ],
 

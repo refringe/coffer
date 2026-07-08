@@ -4,7 +4,11 @@ declare(strict_types=1);
 
 use App\Actions\Shares\MoveEntry;
 use App\Actions\Shares\RenameEntry;
+use App\Jobs\DownloadFileFromUrl;
 use App\Models\Share;
+use CraftCms\UrlValidator\UrlValidator;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\RateLimiter;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 
@@ -434,4 +438,129 @@ test('search is scoped to the current share', function (): void {
         ->test('pages::shares.show', ['share' => $share])
         ->set('search', 'budget')
         ->assertDontSee('budget-elsewhere.txt');
+});
+
+test('a member can start a URL download', function (): void {
+    [$user, $share] = shareWithMember();
+
+    Queue::fake();
+    app()->instance(UrlValidator::class, new UrlValidator(fn (): array => ['93.184.215.14']));
+
+    Livewire::actingAs($user)
+        ->test('pages::shares.show', ['share' => $share])
+        ->set('showUrlDownload', true)
+        ->set('downloadUrl', 'https://files.example/report.pdf')
+        ->set('downloadName', 'report.pdf')
+        ->call('startUrlDownload')
+        ->assertHasNoErrors()
+        ->assertSet('showUrlDownload', false)
+        ->assertDispatched('remote-download-started');
+
+    Queue::assertPushed(
+        DownloadFileFromUrl::class,
+        fn (DownloadFileFromUrl $job): bool => $job->shareId === $share->id
+            && $job->userId === $user->id
+            && $job->url === 'https://files.example/report.pdf'
+            && $job->name === 'report.pdf'
+            && $job->directory === '',
+    );
+});
+
+test('the file name is derived from the URL when left blank', function (): void {
+    [$user, $share] = shareWithMember();
+
+    Queue::fake();
+    app()->instance(UrlValidator::class, new UrlValidator(fn (): array => ['93.184.215.14']));
+
+    Livewire::actingAs($user)
+        ->test('pages::shares.show', ['share' => $share])
+        ->set('downloadUrl', 'https://files.example/photos/My%20Photo.jpg')
+        ->assertSet('downloadName', 'My Photo.jpg')
+        ->call('startUrlDownload')
+        ->assertHasNoErrors();
+
+    Queue::assertPushed(DownloadFileFromUrl::class, fn (DownloadFileFromUrl $job): bool => $job->name === 'My Photo.jpg');
+});
+
+test('a URL download targets the currently open folder', function (): void {
+    [$user, $share] = shareWithMember();
+    seedFolder($share, 'Docs');
+
+    Queue::fake();
+    app()->instance(UrlValidator::class, new UrlValidator(fn (): array => ['93.184.215.14']));
+
+    Livewire::actingAs($user)
+        ->test('pages::shares.show', ['share' => $share])
+        ->call('open', 'Docs')
+        ->set('downloadUrl', 'https://files.example/report.pdf')
+        ->call('startUrlDownload')
+        ->assertHasNoErrors();
+
+    Queue::assertPushed(DownloadFileFromUrl::class, fn (DownloadFileFromUrl $job): bool => $job->directory === 'Docs');
+});
+
+test('a URL download rejects a non-HTTP scheme', function (): void {
+    [$user, $share] = shareWithMember();
+
+    Queue::fake();
+
+    Livewire::actingAs($user)
+        ->test('pages::shares.show', ['share' => $share])
+        ->set('downloadUrl', 'ftp://files.example/report.pdf')
+        ->set('downloadName', 'report.pdf')
+        ->call('startUrlDownload')
+        ->assertHasErrors(['downloadUrl']);
+
+    Queue::assertNothingPushed();
+});
+
+test('a URL download rejects embedded credentials', function (): void {
+    [$user, $share] = shareWithMember();
+
+    Queue::fake();
+
+    Livewire::actingAs($user)
+        ->test('pages::shares.show', ['share' => $share])
+        ->set('downloadUrl', 'https://user:secret@files.example/report.pdf')
+        ->set('downloadName', 'report.pdf')
+        ->call('startUrlDownload')
+        ->assertHasErrors(['downloadUrl']);
+
+    Queue::assertNothingPushed();
+});
+
+test('a URL download rejects a target on a private network', function (): void {
+    [$user, $share] = shareWithMember();
+
+    Queue::fake();
+    app()->instance(UrlValidator::class, new UrlValidator(fn (): array => ['10.0.0.5']));
+
+    Livewire::actingAs($user)
+        ->test('pages::shares.show', ['share' => $share])
+        ->set('downloadUrl', 'http://internal.example/secret')
+        ->set('downloadName', 'secret.bin')
+        ->call('startUrlDownload')
+        ->assertHasErrors(['downloadUrl']);
+
+    Queue::assertNothingPushed();
+});
+
+test('URL downloads are rate limited per user', function (): void {
+    [$user, $share] = shareWithMember();
+
+    Queue::fake();
+    app()->instance(UrlValidator::class, new UrlValidator(fn (): array => ['93.184.215.14']));
+
+    foreach (range(1, 20) as $i) {
+        RateLimiter::hit('url-downloads:'.$user->id, 3600);
+    }
+
+    Livewire::actingAs($user)
+        ->test('pages::shares.show', ['share' => $share])
+        ->set('downloadUrl', 'https://files.example/report.pdf')
+        ->set('downloadName', 'report.pdf')
+        ->call('startUrlDownload')
+        ->assertHasErrors(['downloadUrl']);
+
+    Queue::assertNothingPushed();
 });

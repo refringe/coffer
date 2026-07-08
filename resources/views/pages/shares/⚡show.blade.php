@@ -9,12 +9,18 @@ use App\Concerns\ValidatesNodeNames;
 use App\Contracts\ShareStorage;
 use App\Contracts\ShareStorageResolver;
 use App\Enums\ActivityAction;
+use App\Enums\RemoteDownloadState;
+use App\Jobs\DownloadFileFromUrl;
 use App\Models\Activity;
 use App\Models\Share;
 use App\Support\Entry;
+use App\Support\RemoteDownloadStatus;
+use CraftCms\UrlValidator\UrlValidationException;
+use CraftCms\UrlValidator\UrlValidator;
 use Flux\Flux;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
@@ -43,6 +49,12 @@ new class extends Component {
     public bool $showNewFolder = false;
 
     public string $newFolderName = '';
+
+    public bool $showUrlDownload = false;
+
+    public string $downloadUrl = '';
+
+    public string $downloadName = '';
 
     public bool $showRename = false;
 
@@ -152,6 +164,80 @@ new class extends Component {
         unset($this->entries);
 
         Flux::toast(variant: 'success', text: __('Folder created.'));
+    }
+
+    /**
+     * Prefill the file name from the URL's final path segment while the name field is still empty.
+     */
+    public function updatedDownloadUrl(): void
+    {
+        if ($this->downloadName === '') {
+            $this->downloadName = $this->nameFromUrl($this->downloadUrl);
+        }
+    }
+
+    /**
+     * Queue a server-side download of a remote URL into the current folder. The URL is SSRF-validated here for
+     * immediate feedback; the job re-validates every hop again at transfer time.
+     */
+    public function startUrlDownload(UrlValidator $urlValidator): void
+    {
+        $this->ensureCanModify();
+
+        $this->downloadUrl = mb_trim($this->downloadUrl);
+
+        if ($this->downloadName === '') {
+            $this->downloadName = $this->nameFromUrl($this->downloadUrl);
+        }
+
+        $this->validate([
+            'downloadUrl' => ['required', 'string', 'max:2048', 'url:http,https'],
+            'downloadName' => $this->nodeNameRules(),
+        ]);
+
+        $parts = parse_url($this->downloadUrl);
+
+        if (! is_array($parts) || isset($parts['user']) || isset($parts['pass'])) {
+            $this->addError('downloadUrl', __('The URL must not contain embedded credentials.'));
+
+            return;
+        }
+
+        try {
+            $urlValidator->validate($this->downloadUrl);
+        } catch (UrlValidationException $urlValidationException) {
+            $this->addError('downloadUrl', $urlValidationException->getMessage());
+
+            return;
+        }
+
+        $limiterKey = 'url-downloads:'.$this->authenticatedUser()->id;
+
+        if (RateLimiter::tooManyAttempts($limiterKey, 20)) {
+            $this->addError('downloadUrl', __('Too many downloads started recently. Try again later.'));
+
+            return;
+        }
+
+        RateLimiter::hit($limiterKey, 3600);
+
+        $downloadId = (string) Str::uuid();
+
+        RemoteDownloadStatus::put($this->share->id, $downloadId, RemoteDownloadState::Queued);
+
+        dispatch(new \App\Jobs\DownloadFileFromUrl($this->share->id, $this->authenticatedUser()->id, $downloadId, $this->downloadUrl, $this->downloadName, $this->path));
+
+        $this->dispatch(
+            'remote-download-started',
+            name: $this->downloadName,
+            statusUrl: route('shares.remote-downloads.show', [$this->share, $downloadId]),
+            endpoint: route('shares.uploads.store', $this->share),
+            directory: $this->path,
+        );
+
+        $this->reset('downloadUrl', 'downloadName', 'showUrlDownload');
+
+        Flux::toast(variant: 'success', text: __('Download started.'));
     }
 
     /**
@@ -541,6 +627,26 @@ new class extends Component {
     }
 
     /**
+     * The URL's decoded final path segment, or an empty string when it does not yield a usable file name.
+     */
+    private function nameFromUrl(string $url): string
+    {
+        $path = parse_url(mb_trim($url), PHP_URL_PATH);
+
+        if (! is_string($path)) {
+            return '';
+        }
+
+        $name = rawurldecode(basename($path));
+
+        if (in_array($name, ['', '.', '..'], true) || preg_match('/[\/\\\\\x00-\x1F]/', $name) === 1) {
+            return '';
+        }
+
+        return $name;
+    }
+
+    /**
      * Normalize a browser-supplied relative path, collapsing traversal or a reserved internal area to root.
      */
     private function clean(string $path): string
@@ -609,6 +715,13 @@ new class extends Component {
             @if ($this->canModify)
                 <flux:button icon="folder-plus" wire:click="$set('showNewFolder', true)" data-test="new-folder-button">
                     {{ __('New folder') }}
+                </flux:button>
+                <flux:button
+                    icon="cloud-arrow-down"
+                    wire:click="$set('showUrlDownload', true)"
+                    data-test="url-download-button"
+                >
+                    {{ __('From URL') }}
                 </flux:button>
                 <flux:button
                     variant="primary"
@@ -922,6 +1035,34 @@ new class extends Component {
                         variant="primary"
                         data-test="create-folder-button"
                         >{{ __('Create') }}</flux:button
+                    >
+                </div>
+            </form>
+        </flux:modal>
+        {{-- Download from URL --}}
+        <flux:modal wire:model="showUrlDownload" class="md:w-96">
+            <form wire:submit="startUrlDownload" class="flex flex-col gap-6">
+                <flux:heading size="lg">{{ __('Download from URL') }}</flux:heading>
+                <flux:text>
+                    {{ __('The server fetches the file directly, so it never passes through your browser.') }}
+                </flux:text>
+                <flux:input
+                    wire:model.blur="downloadUrl"
+                    :label="__('URL')"
+                    placeholder="https://example.com/file.zip"
+                    data-test="download-url"
+                    autofocus
+                />
+                <flux:input wire:model="downloadName" :label="__('Save as')" data-test="download-name" />
+                <div class="flex justify-end gap-2">
+                    <flux:modal.close>
+                        <flux:button variant="ghost">{{ __('Cancel') }}</flux:button>
+                    </flux:modal.close>
+                    <flux:button
+                        type="submit"
+                        variant="primary"
+                        data-test="start-url-download-button"
+                        >{{ __('Download') }}</flux:button
                     >
                 </div>
             </form>

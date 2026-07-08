@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Http\Controllers\Auth\GitHubAuthController;
 use App\Http\Controllers\Shares\DownloadFileController;
 use App\Http\Controllers\Shares\DownloadZipController;
+use App\Http\Controllers\Shares\RemoteDownloadStatusController;
 use App\Http\Controllers\Shares\Uploads\AppendUploadController;
 use App\Http\Controllers\Shares\Uploads\CancelUploadController;
 use App\Http\Controllers\Shares\Uploads\CreateUploadController;
@@ -55,6 +56,9 @@ Route::middleware('auth')
         Route::get('zip', DownloadZipController::class)
             ->middleware('throttle:downloads')
             ->name('zip');
+        Route::get('remote-downloads/{download}', RemoteDownloadStatusController::class)
+            ->whereUuid('download')
+            ->name('remote-downloads.show');
     });
 
 require __DIR__.'/admin.php';

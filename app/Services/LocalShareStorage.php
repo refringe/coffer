@@ -442,6 +442,11 @@ final readonly class LocalShareStorage implements ShareStorage
         return $size === false ? null : $size;
     }
 
+    public function uploadPath(string $id): string
+    {
+        return $this->disk->path(self::UPLOADS.'/'.$id);
+    }
+
     public function uploadLastActivity(string $id): ?int
     {
         $partial = @filemtime($this->disk->path(self::UPLOADS.'/'.$id));

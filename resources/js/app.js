@@ -4,8 +4,13 @@ const MAX_CONCURRENT_UPLOADS = 3;
 
 const DONE_DISMISS_DELAY = 4000;
 
+const REMOTE_POLL_INTERVAL = 2000;
+
 // In-flight tus.Upload instances, keyed by item id, kept outside Alpine's reactive state.
 const transports = new Map();
+
+// Poll timers for server-side URL downloads, keyed by item id, kept outside Alpine's reactive state.
+const remotePolls = new Map();
 
 let nextId = 1;
 
@@ -40,7 +45,8 @@ document.addEventListener("alpine:init", () => {
         },
 
         pump() {
-            let active = this.items.filter((item) => item.status === "uploading").length;
+            // Server-side URL downloads consume no browser upload slots.
+            let active = this.items.filter((item) => !item.remote && item.status === "uploading").length;
 
             for (const item of this.items) {
                 if (active >= MAX_CONCURRENT_UPLOADS) {
@@ -125,6 +131,76 @@ document.addEventListener("alpine:init", () => {
             this.pump();
         },
 
+        // Track a server-side URL download: the server streams the file itself, so the panel only polls the status
+        // endpoint for progress. Dismissing the item stops the polling, not the download.
+        watchRemote({ name, statusUrl, endpoint, directory }) {
+            const item = {
+                id: nextId++,
+                name,
+                progress: 0,
+                status: "uploading",
+                remote: true,
+                statusUrl,
+                endpoint,
+                directory,
+                error: null,
+            };
+
+            this.items.push(item);
+
+            remotePolls.set(
+                item.id,
+                window.setInterval(() => this.pollRemote(item), REMOTE_POLL_INTERVAL),
+            );
+        },
+
+        async pollRemote(item) {
+            if (!this.items.includes(item)) {
+                this.stopRemotePoll(item.id);
+                return;
+            }
+
+            let payload;
+
+            try {
+                const response = await fetch(item.statusUrl, { headers: { Accept: "application/json" } });
+
+                if (!response.ok) {
+                    return;
+                }
+
+                payload = await response.json();
+            } catch {
+                // A transient network failure skips this tick and the next one tries again.
+                return;
+            }
+
+            item.progress = payload.total > 0 ? Math.round((payload.received / payload.total) * 100) : 0;
+
+            if (payload.status === "completed") {
+                this.stopRemotePoll(item.id);
+                item.progress = 100;
+                item.status = "done";
+
+                window.setTimeout(() => this.dismiss(item.id), DONE_DISMISS_DELAY);
+
+                window.dispatchEvent(
+                    new CustomEvent("coffer:upload-finished", {
+                        detail: { endpoint: item.endpoint, directory: item.directory },
+                    }),
+                );
+            } else if (payload.status === "failed") {
+                this.stopRemotePoll(item.id);
+                item.status = "error";
+                item.error = payload.error;
+            }
+        },
+
+        stopRemotePoll(id) {
+            window.clearInterval(remotePolls.get(id));
+            remotePolls.delete(id);
+        },
+
         cancel(id) {
             // abort(true) terminates the upload server-side and clears the stored fingerprint; a failed termination
             // is swallowed because the scheduled stalled-upload purge sweeps the leftover partial.
@@ -139,11 +215,13 @@ document.addEventListener("alpine:init", () => {
         },
 
         dismiss(id) {
+            this.stopRemotePoll(id);
             this.items = this.items.filter((item) => item.id !== id);
         },
 
         get hasActive() {
-            return this.items.some((item) => item.status === "queued" || item.status === "uploading");
+            // Remote downloads run on the server and survive the tab closing, so they never hold the page open.
+            return this.items.some((item) => !item.remote && (item.status === "queued" || item.status === "uploading"));
         },
     });
 
@@ -221,4 +299,11 @@ document.addEventListener("alpine:init", () => {
             resolve(choice);
         },
     }));
+});
+
+// The share page announces each queued URL download; the panel adopts it and polls its status endpoint.
+document.addEventListener("livewire:init", () => {
+    window.Livewire.on("remote-download-started", (event) => {
+        window.Alpine.store("uploads").watchRemote(event);
+    });
 });

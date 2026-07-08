@@ -6,6 +6,11 @@ use App\Contracts\ShareStorage;
 use App\Contracts\ShareStorageResolver;
 use App\Models\Share;
 use App\Models\User;
+use App\Services\RemoteFileDownloader;
+use CraftCms\UrlValidator\UrlValidator;
+use GuzzleHttp\Client;
+use GuzzleHttp\Handler\MockHandler;
+use GuzzleHttp\HandlerStack;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
@@ -92,6 +97,22 @@ function fakeShareStorage(): ShareStorage
     });
 
     return $storage;
+}
+
+/**
+ * Build a RemoteFileDownloader whose HTTP transport replays the given mock responses and whose DNS resolver returns
+ * the mapped IPs per host (defaulting to a public documentation address), so no test opens a real connection.
+ *
+ * @param  array<int, mixed>  $responses
+ * @param  array<string, string[]>  $hosts
+ */
+function fakeRemoteDownloader(array $responses, array $hosts = []): RemoteFileDownloader
+{
+    $client = new Client(['handler' => HandlerStack::create(new MockHandler($responses))]);
+
+    $validator = new UrlValidator(fn (string $host): array => $hosts[$host] ?? ['93.184.215.14']);
+
+    return new RemoteFileDownloader($validator, $client);
 }
 
 /**

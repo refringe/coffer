@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "5d7716ebe84a6e6c0f1b00c387f564dd",
+    "content-hash": "964ff9a7ef8d5d96ae82ecd71d5908b8",
     "packages": [
         {
             "name": "brick/math",
@@ -133,6 +133,62 @@
                 }
             ],
             "time": "2024-02-09T16:56:22+00:00"
+        },
+        {
+            "name": "craftcms/url-validator",
+            "version": "1.1.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/craftcms/url-validator.git",
+                "reference": "3918c21317a856d6313b3fbf40d70ce013cdd715"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/craftcms/url-validator/zipball/3918c21317a856d6313b3fbf40d70ce013cdd715",
+                "reference": "3918c21317a856d6313b3fbf40d70ce013cdd715",
+                "shasum": ""
+            },
+            "require": {
+                "ext-filter": "*",
+                "php": "^8.0.2"
+            },
+            "require-dev": {
+                "laravel/pint": "^1.29",
+                "nunomaduro/collision": "^8.1",
+                "pestphp/pest": "^3.0",
+                "phpstan/phpstan": "^2.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "CraftCms\\UrlValidator\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Pixel & Tonic",
+                    "homepage": "https://pixelandtonic.com/"
+                }
+            ],
+            "description": "Validate URLs and IP addresses against SSRF, DNS rebinding, and cloud-metadata attacks.",
+            "homepage": "https://github.com/craftcms/url-validator",
+            "keywords": [
+                "IP",
+                "craftcms",
+                "security",
+                "ssrf",
+                "url",
+                "validation"
+            ],
+            "support": {
+                "issues": "https://github.com/craftcms/url-validator/issues",
+                "source": "https://github.com/craftcms/url-validator/tree/1.1.0"
+            },
+            "time": "2026-07-06T20:35:29+00:00"
         },
         {
             "name": "dflydev/dot-access-data",

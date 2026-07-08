@@ -191,6 +191,11 @@ interface ShareStorage
     public function uploadOffset(string $id): ?int;
 
     /**
+     * The absolute filesystem path of a pending upload's partial file.
+     */
+    public function uploadPath(string $id): string;
+
+    /**
      * The Unix timestamp of a pending upload's last write activity (the partial's mtime, falling back to the sidecar's
      * mtime), or null when neither file exists.
      */

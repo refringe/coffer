@@ -17,6 +17,7 @@
                     <span
                         class="shrink-0 tabular-nums"
                         :class="item.status === 'error' ? 'text-red-500' : 'text-zinc-500'"
+                        :title="item.error || ''"
                         x-text="item.status === 'error' ? '{{ __('Failed') }}' : (item.status === 'done' ? '{{ __('Done') }}' : (item.status === 'queued' ? '{{ __('Queued') }}' : item.progress + '%'))"
                     ></span>
                 </div>
