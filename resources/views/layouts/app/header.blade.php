@@ -94,6 +94,10 @@
 
     {{ $slot }}
 
+    @persist ('uploads')
+        @include ('partials.upload-panel')
+    @endpersist
+
     @persist ('toast')
         <flux:toast.group>
             <flux:toast />

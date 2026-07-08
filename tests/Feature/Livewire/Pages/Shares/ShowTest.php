@@ -325,14 +325,23 @@ test('a user can delete an entry through the browser', function (): void {
         ->and($storage->trashed())->toHaveCount(1);
 });
 
-test('the uploader renders a progress bar and a dismiss control', function (): void {
+test('the uploader intake renders the conflict prompt and completion listener', function (): void {
     [$user, $share] = shareWithMember();
 
     Livewire::actingAs($user)
         ->test('pages::shares.show', ['share' => $share])
-        ->assertSeeHtml('data-test="dismiss-upload"')
-        ->assertSeeHtml('dismiss(item.id)')
-        ->assertSeeHtml(':style="`width: ${item.progress}%`"');
+        ->assertSeeHtml('data-test="upload-conflict"')
+        ->assertSeeHtml('coffer:upload-finished');
+});
+
+test('the persistent upload panel renders through the app layout', function (): void {
+    [$user, $share] = shareWithMember();
+
+    $this->actingAs($user)
+        ->get(route('shares.show', $share))
+        ->assertSee('data-test="upload-progress"', false)
+        ->assertSee('data-test="dismiss-upload"', false)
+        ->assertSee(':style="`width: ${item.progress}%`"', false);
 });
 
 test('deleting an entry removes it from the current selection', function (): void {

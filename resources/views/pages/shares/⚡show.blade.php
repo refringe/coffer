@@ -585,6 +585,7 @@ new class extends Component {
         x-on:dragover.prevent="dragging = true"
         x-on:dragleave.prevent="dragging = false"
         x-on:drop.prevent="onDrop($event)"
+        x-on:coffer:upload-finished.window="onFinished($event)"
     @endif
 >
     <div class="flex items-end justify-between gap-4">
@@ -642,50 +643,13 @@ new class extends Component {
     </div>
 
     @if ($this->canModify)
-        {{-- Drag-and-drop hint + in-flight upload progress --}}
+        {{-- Drag-and-drop hint --}}
         <div
             x-show="dragging"
             x-cloak
             class="rounded-lg border-2 border-dashed border-accent p-6 text-center text-sm text-zinc-500"
         >
             {{ __('Drop files to upload to this folder') }}
-        </div>
-        <div x-show="items.length > 0" x-cloak class="flex flex-col gap-2" data-test="upload-progress">
-            <template x-for="item in items" :key="item.id">
-                <div class="flex items-center gap-3 rounded-md bg-zinc-100 px-3 py-2 text-sm dark:bg-zinc-700">
-                    <div class="min-w-0 flex-1">
-                        <div class="flex items-center justify-between gap-3">
-                            <span class="truncate" x-text="item.name"></span>
-                            <span
-                                class="shrink-0 tabular-nums"
-                                :class="item.status === 'error' ? 'text-red-500' : 'text-zinc-500'"
-                                x-text="item.status === 'error' ? '{{ __('Failed') }}' : (item.status === 'done' ? '{{ __('Done') }}' : item.progress + '%')"
-                            ></span>
-                        </div>
-
-                        {{-- Progress bar (visible while the upload is in flight) --}}
-                        <div
-                            x-show="item.status === 'uploading'"
-                            class="mt-1.5 h-1 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-600"
-                        >
-                            <div
-                                class="h-full rounded-full bg-accent transition-[width] duration-200 ease-out"
-                                :style="`width: ${item.progress}%`"
-                            ></div>
-                        </div>
-                    </div>
-
-                    <button
-                        type="button"
-                        x-on:click="dismiss(item.id)"
-                        class="shrink-0 cursor-pointer rounded p-1 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
-                        aria-label="{{ __('Dismiss') }}"
-                        data-test="dismiss-upload"
-                    >
-                        <flux:icon.x-mark class="size-4" />
-                    </button>
-                </div>
-            </template>
         </div>
     @endif
 
@@ -799,7 +763,7 @@ new class extends Component {
             </flux:callout.text>
         </flux:callout>
     @else
-        <flux:table>
+        <flux:table data-test="entries">
             <flux:table.columns>
                 <flux:table.column />
                 <flux:table.column

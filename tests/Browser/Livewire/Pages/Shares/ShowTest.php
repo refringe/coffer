@@ -115,9 +115,81 @@ test('a file uploads through the resumable uploader in chunks', function (): voi
         })()
     JS);
 
-    $page->waitForText('Done')
+    $page->assertSeeIn('[data-test="upload-progress"]', 'browser-upload.txt')
+        ->waitForText('Done')
         ->assertNoJavaScriptErrors()
         ->waitForText('browser-upload.txt');
 
     expect(file_get_contents($share->path.'/browser-upload.txt'))->toBe(str_repeat('a', 5 * 1024));
+});
+
+test('selecting multiple files queues them all visibly and uploads every one', function (): void {
+    config(['coffer.upload_chunk_size' => 1024]);
+
+    $user = User::factory()->create();
+    $share = Share::factory()->create(['name' => 'Multi Share']);
+
+    $this->actingAs($user);
+
+    $page = visit(route('shares.show', $share))->assertSee('Upload');
+
+    $page->script(<<<'JS'
+        (() => {
+            const input = document.querySelector('input[type="file"]');
+            const transfer = new DataTransfer();
+            transfer.items.add(new File([new Uint8Array(3072).fill(97)], 'first-multi.txt', { type: 'text/plain' }));
+            transfer.items.add(new File([new Uint8Array(3072).fill(98)], 'second-multi.txt', { type: 'text/plain' }));
+            transfer.items.add(new File([new Uint8Array(3072).fill(99)], 'third-multi.txt', { type: 'text/plain' }));
+            input.files = transfer.files;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+        })()
+    JS);
+
+    // Every selected file appears in the queue panel immediately, before any upload has finished.
+    $page->assertCount('[data-test="upload-item"]', 3)
+        ->assertSeeIn('[data-test="upload-progress"]', 'first-multi.txt')
+        ->assertSeeIn('[data-test="upload-progress"]', 'second-multi.txt')
+        ->assertSeeIn('[data-test="upload-progress"]', 'third-multi.txt');
+
+    // A listing row (scoped to the entries table, which excludes the floating panel) only appears once that file
+    // finalized and the event-driven reload ran.
+    $page->assertSeeIn('[data-test="entries"]', 'first-multi.txt')
+        ->assertSeeIn('[data-test="entries"]', 'second-multi.txt')
+        ->assertSeeIn('[data-test="entries"]', 'third-multi.txt')
+        ->assertNoJavaScriptErrors();
+
+    expect(file_get_contents($share->path.'/first-multi.txt'))->toBe(str_repeat('a', 3072))
+        ->and(file_get_contents($share->path.'/second-multi.txt'))->toBe(str_repeat('b', 3072))
+        ->and(file_get_contents($share->path.'/third-multi.txt'))->toBe(str_repeat('c', 3072));
+});
+
+test('the upload panel survives navigating to another page while uploading', function (): void {
+    config(['coffer.upload_chunk_size' => 1024]);
+
+    $user = User::factory()->create();
+    $share = Share::factory()->create(['name' => 'Persist Share']);
+
+    $this->actingAs($user);
+
+    $page = visit(route('shares.show', $share))->assertSee('Upload');
+
+    // 128 KB at 1 KB chunks keeps the upload in flight long enough to navigate away mid-transfer.
+    $page->script(<<<'JS'
+        (() => {
+            const input = document.querySelector('input[type="file"]');
+            const transfer = new DataTransfer();
+            transfer.items.add(new File([new Uint8Array(131072).fill(99)], 'persist-upload.bin', { type: 'application/octet-stream' }));
+            input.files = transfer.files;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+        })()
+    JS);
+
+    $page->assertSeeIn('[data-test="upload-progress"]', 'persist-upload.bin')
+        ->click('Shares')
+        ->assertSee('Persist Share')
+        ->assertSeeIn('[data-test="upload-progress"]', 'persist-upload.bin')
+        ->waitForText('Done')
+        ->assertNoJavaScriptErrors();
+
+    expect(file_get_contents($share->path.'/persist-upload.bin'))->toBe(str_repeat('c', 131072));
 });
