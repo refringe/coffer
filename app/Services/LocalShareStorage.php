@@ -70,6 +70,7 @@ final readonly class LocalShareStorage implements ShareStorage
             if ($this->isReserved($path)) {
                 continue;
             }
+
             if (! $attributes->isDir() && $this->isPartial($path)) {
                 continue;
             }
