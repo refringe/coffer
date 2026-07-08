@@ -30,6 +30,18 @@ test('a member can open a share and see its root entries', function (): void {
         ->assertSee('readme.txt');
 });
 
+test('a partial transfer file is hidden from the listing', function (): void {
+    [$user, $share] = shareWithMember('viewer');
+
+    seedFile($share, 'notes.txt');
+    seedFile($share, 'archive.7z.partial');
+
+    Livewire::actingAs($user)
+        ->test('pages::shares.show', ['share' => $share])
+        ->assertSee('notes.txt')
+        ->assertDontSee('archive.7z.partial');
+});
+
 test('folders are listed before files', function (): void {
     [$user, $share] = shareWithMember('viewer');
 
@@ -207,6 +219,20 @@ test('renaming an entry to a reserved name is rejected', function (): void {
         ->test('pages::shares.show', ['share' => $share])
         ->call('startRename', 'ok.txt')
         ->set('renameName', '.tmp')
+        ->call('rename')
+        ->assertHasErrors('renameName');
+
+    expect(storageFor($share)->exists('ok.txt'))->toBeTrue();
+});
+
+test('renaming an entry to a partial-suffixed name is rejected', function (): void {
+    [$user, $share] = shareWithMember();
+    seedFile($share, 'ok.txt');
+
+    Livewire::actingAs($user)
+        ->test('pages::shares.show', ['share' => $share])
+        ->call('startRename', 'ok.txt')
+        ->set('renameName', 'ok.txt.partial')
         ->call('rename')
         ->assertHasErrors('renameName');
 
@@ -427,6 +453,16 @@ test('search excludes items in the recycle bin', function (): void {
         ->test('pages::shares.show', ['share' => $share])
         ->set('search', 'budget')
         ->assertDontSee('deleted-budget.txt');
+});
+
+test('search excludes partial transfer files', function (): void {
+    [$user, $share] = shareWithMember('viewer');
+    seedFile($share, 'Reports/budget.xlsx.partial');
+
+    Livewire::actingAs($user)
+        ->test('pages::shares.show', ['share' => $share])
+        ->set('search', 'budget')
+        ->assertDontSee('budget.xlsx.partial');
 });
 
 test('search is scoped to the current share', function (): void {

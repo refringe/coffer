@@ -106,6 +106,14 @@ test('a reserved or path-corrupting filename is refused', function (): void {
     tusCreate($share, 'nested/name.txt', 5)->assertUnprocessable();
 });
 
+test('a filename with the partial transfer suffix is refused', function (): void {
+    [$user, $share] = shareWithMember();
+
+    $this->actingAs($user);
+
+    tusCreate($share, 'report.txt.partial', 5)->assertUnprocessable();
+});
+
 test('metadata whose value is not valid base64 is refused', function (): void {
     [$user, $share] = shareWithMember();
 

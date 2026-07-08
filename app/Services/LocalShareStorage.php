@@ -48,7 +48,7 @@ final readonly class LocalShareStorage implements ShareStorage
             ->map(fn (string $path): Entry => $this->entryFor($path, true));
 
         $files = $this->strings($this->disk->files($directory))
-            ->reject(fn (string $path): bool => $this->isReserved($path))
+            ->reject(fn (string $path): bool => $this->isReserved($path) || $this->isPartial($path))
             ->map(fn (string $path): Entry => $this->entryFor($path, false));
 
         return $folders->concat($files)->values();
@@ -68,6 +68,9 @@ final readonly class LocalShareStorage implements ShareStorage
         foreach ($this->disk->getDriver()->listContents('', true) as $attributes) {
             $path = $attributes->path();
             if ($this->isReserved($path)) {
+                continue;
+            }
+            if (! $attributes->isDir() && $this->isPartial($path)) {
                 continue;
             }
 
@@ -90,7 +93,7 @@ final readonly class LocalShareStorage implements ShareStorage
     public function filesUnder(string $directory = ''): Collection
     {
         return $this->strings($this->disk->allFiles($this->guard($directory)))
-            ->reject(fn (string $path): bool => $this->isReserved($path))
+            ->reject(fn (string $path): bool => $this->isReserved($path) || $this->isPartial($path))
             ->values();
     }
 
@@ -699,6 +702,14 @@ final readonly class LocalShareStorage implements ShareStorage
     private function isReserved(string $path): bool
     {
         return array_any(self::RESERVED, fn (string $reserved): bool => $path === $reserved || str_starts_with($path, $reserved.'/'));
+    }
+
+    /**
+     * Whether a file path carries the in-flight transfer suffix hidden from every listing.
+     */
+    private function isPartial(string $path): bool
+    {
+        return str_ends_with($path, self::PARTIAL_SUFFIX);
     }
 
     /**

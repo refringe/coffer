@@ -16,8 +16,8 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 /**
  * A share's storage, backed by a real local directory tree of which the share is the sole writer. Every path is
- * relative to the share's own root; the reserved `.trash` and `.tmp` directories are excluded from all browsing,
- * search, and usage operations.
+ * relative to the share's own root; the reserved `.trash` and `.tmp` directories and files carrying the `.partial`
+ * suffix are excluded from all browsing, search, and usage operations.
  */
 interface ShareStorage
 {
@@ -36,8 +36,14 @@ interface ShareStorage
     public const string UPLOADS = '.tmp/uploads';
 
     /**
+     * File name suffix external transfer tools give to in-flight copies. Files carrying it are hidden from every
+     * listing, search, and usage walk, and browser-supplied names may not end with it.
+     */
+    public const string PARTIAL_SUFFIX = '.partial';
+
+    /**
      * List the immediate folder and file entries within a directory (the share root when empty), excluding the reserved
-     * areas.
+     * areas and partial transfer files.
      *
      * @return Collection<int, Entry>
      */

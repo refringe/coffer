@@ -55,6 +55,26 @@ test("the job zips a folder's descendant files preserving relative paths", funct
     expect($entries)->toContain('Docs/a.txt')->toContain('Docs/b.txt');
 });
 
+test('a partial transfer file is excluded from a zipped folder', function (): void {
+    $share = Share::factory()->create();
+    seedFile($share, 'Docs/a.txt', 'alpha');
+    seedFile($share, 'Docs/a.txt.partial', 'in-flight');
+
+    $key = new BuildShareZip($share->id, ['Docs'])->handle(resolve(ShareStorageResolver::class));
+
+    $zip = new ZipArchive();
+    $zip->open($share->path.'/'.$key);
+
+    $entries = [];
+    for ($i = 0; $i < $zip->numFiles; $i++) {
+        $entries[] = $zip->getNameIndex($i);
+    }
+
+    $zip->close();
+
+    expect($entries)->toContain('Docs/a.txt')->not->toContain('Docs/a.txt.partial');
+});
+
 test('zipping an empty folder produces a valid, non-empty archive', function (): void {
     $share = Share::factory()->create();
     seedFolder($share, 'Empty');

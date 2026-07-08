@@ -10,8 +10,9 @@ use Closure;
 trait ValidatesNodeNames
 {
     /**
-     * Validation rules for a user-supplied file or folder name. Disallows path separators, control characters, and
-     * directory-traversal names so the materialized node path can never be corrupted.
+     * Validation rules for a user-supplied file or folder name. Disallows path separators, control characters,
+     * directory-traversal names, reserved names, and the hidden `.partial` transfer suffix so the materialized node
+     * path can never be corrupted or hidden.
      *
      * @return array<int, mixed>
      */
@@ -36,7 +37,7 @@ trait ValidatesNodeNames
                 return;
             }
 
-            if (in_array($value, ShareStorage::RESERVED, true)) {
+            if (in_array($value, ShareStorage::RESERVED, true) || str_ends_with($value, ShareStorage::PARTIAL_SUFFIX)) {
                 $fail(__('That name is reserved.'));
             }
         };
