@@ -14,8 +14,8 @@
 # (COFFER_STORAGE_PATH). By default they all share the "shares" volume. To put a
 # share on its own host directory or disk, uncomment one of the example mounts
 # below, then create the share in the UI with a matching path (e.g.
-# /data/shares/marketing). Uploads stream through the app; raise the proxy/PHP
-# body-size limits (docker/Caddyfile) if you need large files.
+# /data/shares/marketing). Uploads arrive in 50 MB chunks, so a reverse proxy
+# body limit above 50 MB accepts files of any size.
 #
 # Generate an APP_KEY once with:
 #   docker compose run --rm app php artisan key:generate --show

@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 use App\Enums\NodeType;
 use App\Support\Entry;
+use App\Support\PendingUpload;
 use App\Support\TrashedEntry;
-use Illuminate\Http\UploadedFile;
+use Mockery\MockInterface;
 
 /**
  * Interaction (mockist) tests: the storage backend is replaced with a Mockery mock so we can assert *which* storage
@@ -22,21 +23,36 @@ function fakeTrashedEntry(string $path = 'report.txt'): TrashedEntry
     return new TrashedEntry('id', basename($path), NodeType::File, $path, 5, 0, null);
 }
 
+/**
+ * Expect the pending-upload session bookkeeping every mocked tus upload performs: the sidecar write at creation (and
+ * again at completion), the sidecar read-back on later requests, and the activity probe of the expiry checks.
+ */
+function expectUploadSession(MockInterface $storage): void
+{
+    $created = null;
+
+    $storage->shouldReceive('putPendingUpload')->andReturnUsing(function (PendingUpload $upload) use (&$created): void {
+        $created ??= $upload;
+    });
+    $storage->shouldReceive('pendingUpload')->andReturnUsing(function (string $id) use (&$created): ?PendingUpload {
+        return $created;
+    });
+    $storage->shouldReceive('uploadLastActivity')->andReturn(now()->getTimestamp());
+}
+
 test('a successful upload stores the file once and records the activity', function (): void {
     [$user, $share] = shareWithMember();
     $storage = fakeShareStorage();
 
+    expectUploadSession($storage);
+    $storage->shouldReceive('appendUpload')->once()->andReturn(5);
     $storage->shouldReceive('exists')->andReturn(false);
-    $storage->shouldReceive('storeUpload')->once()->andReturn(fakeEntry());
+    $storage->shouldReceive('move')->once();
+    $storage->shouldReceive('entry')->andReturn(fakeEntry());
 
-    $this->actingAs($user)
-        ->post(route('shares.upload', $share), [
-            'file' => UploadedFile::fake()->createWithContent('report.txt', 'hello'),
-            'directory' => '',
-            'on_conflict' => 'keep_both',
-        ])
-        ->assertCreated()
-        ->assertJson(['status' => 'completed']);
+    $this->actingAs($user);
+
+    tusUpload($share, 'report.txt', 'hello')->assertNoContent();
 
     $this->assertDatabaseHas('activities', [
         'share_id' => $share->id,
@@ -45,101 +61,70 @@ test('a successful upload stores the file once and records the activity', functi
     ]);
 });
 
-test('a skip-conflict upload never writes to storage', function (): void {
+test('a replace-conflict upload trashes the existing file before promotion', function (): void {
     [$user, $share] = shareWithMember();
     $storage = fakeShareStorage();
 
-    $storage->shouldReceive('exists')->once()->andReturn(true);
-    $storage->shouldNotReceive('storeUpload');
-
-    $this->actingAs($user)
-        ->post(route('shares.upload', $share), [
-            'file' => UploadedFile::fake()->createWithContent('report.txt', 'hello'),
-            'directory' => '',
-            'on_conflict' => 'skip',
-        ])
-        ->assertOk()
-        ->assertJson(['status' => 'skipped']);
-
-    $this->assertDatabaseMissing('activities', ['share_id' => $share->id, 'action' => 'file.uploaded']);
-});
-
-test('a replace-conflict upload trashes the existing file before storing', function (): void {
-    [$user, $share] = shareWithMember();
-    $storage = fakeShareStorage();
-
+    expectUploadSession($storage);
+    $storage->shouldReceive('appendUpload')->once()->andReturn(5);
     $storage->shouldReceive('exists')->andReturn(true);
     $storage->shouldReceive('isDirectory')->once()->with('report.txt')->andReturn(false);
     $storage->shouldReceive('trash')->once()->with('report.txt', $user->id)->andReturn(fakeTrashedEntry());
-    $storage->shouldReceive('storeUpload')->once()->andReturn(fakeEntry());
+    $storage->shouldReceive('move')->once();
+    $storage->shouldReceive('entry')->andReturn(fakeEntry());
 
-    $this->actingAs($user)
-        ->post(route('shares.upload', $share), [
-            'file' => UploadedFile::fake()->createWithContent('report.txt', 'hello'),
-            'directory' => '',
-            'on_conflict' => 'replace',
-        ])
-        ->assertCreated()
-        ->assertJson(['status' => 'completed']);
+    $this->actingAs($user);
+
+    tusUpload($share, 'report.txt', 'hello', onConflict: 'replace')->assertNoContent();
 });
 
 test('a replace-conflict upload never destroys a folder of the same name', function (): void {
     [$user, $share] = shareWithMember();
     $storage = fakeShareStorage();
 
+    expectUploadSession($storage);
+    $storage->shouldReceive('appendUpload')->once()->andReturn(5);
     $storage->shouldReceive('exists')->andReturn(true);
     $storage->shouldReceive('isDirectory')->once()->with('report.txt')->andReturn(true);
     $storage->shouldNotReceive('trash');
     $storage->shouldNotReceive('delete');
     $storage->shouldReceive('uniqueName')->once()->with('', 'report.txt')->andReturn('report (1).txt');
-    $storage->shouldReceive('storeUpload')->once()->andReturn(fakeEntry('report (1).txt'));
+    $storage->shouldReceive('move')->once();
+    $storage->shouldReceive('entry')->andReturn(fakeEntry('report (1).txt'));
 
-    $this->actingAs($user)
-        ->post(route('shares.upload', $share), [
-            'file' => UploadedFile::fake()->createWithContent('report.txt', 'hello'),
-            'directory' => '',
-            'on_conflict' => 'replace',
-        ])
-        ->assertCreated()
-        ->assertJson(['status' => 'completed']);
+    $this->actingAs($user);
+
+    tusUpload($share, 'report.txt', 'hello', onConflict: 'replace')->assertNoContent();
 });
 
-test('an oversize upload is rejected before storage is ever resolved', function (): void {
+test('an oversize upload is rejected at creation before any bytes or state exist', function (): void {
     config(['coffer.max_file_size' => 1000]);
 
     [$user, $share] = shareWithMember();
     $storage = fakeShareStorage();
 
-    $storage->shouldNotReceive('exists');
-    $storage->shouldNotReceive('storeUpload');
+    $storage->shouldNotReceive('putPendingUpload');
+    $storage->shouldNotReceive('appendUpload');
 
-    $this->actingAs($user)
-        ->post(route('shares.upload', $share), [
-            'file' => UploadedFile::fake()->create('big.bin', 2), // 2 KB > 1000 bytes
-            'directory' => '',
-            'on_conflict' => 'keep_both',
-        ])
-        ->assertStatus(422)
-        ->assertJson(['status' => 'too_large']);
+    $this->actingAs($user);
+
+    tusCreate($share, 'big.bin', 2048)
+        ->assertStatus(413)
+        ->assertHeader('Tus-Max-Size', '1000');
 
     $this->assertDatabaseMissing('activities', ['share_id' => $share->id, 'action' => 'file.uploaded']);
 });
 
-test('a storage failure during upload surfaces an error and records no activity', function (): void {
+test('a storage failure during upload surfaces a server error and records no activity', function (): void {
     [$user, $share] = shareWithMember();
     $storage = fakeShareStorage();
 
-    $storage->shouldReceive('exists')->andReturn(false);
-    $storage->shouldReceive('storeUpload')->andThrow(new RuntimeException('disk full'));
+    expectUploadSession($storage);
+    $storage->shouldReceive('appendUpload')->andThrow(new RuntimeException('disk full'));
 
-    $this->actingAs($user)
-        ->post(route('shares.upload', $share), [
-            'file' => UploadedFile::fake()->createWithContent('report.txt', 'hello'),
-            'directory' => '',
-            'on_conflict' => 'keep_both',
-        ])
-        ->assertStatus(422)
-        ->assertJson(['status' => 'error']);
+    $this->actingAs($user);
+
+    tusUpload($share, 'report.txt', 'hello')->assertServerError();
 
     $this->assertDatabaseMissing('activities', ['share_id' => $share->id, 'action' => 'file.uploaded']);
 });

@@ -5,7 +5,11 @@ declare(strict_types=1);
 use App\Http\Controllers\Auth\GitHubAuthController;
 use App\Http\Controllers\Shares\DownloadFileController;
 use App\Http\Controllers\Shares\DownloadZipController;
-use App\Http\Controllers\Shares\UploadController;
+use App\Http\Controllers\Shares\Uploads\AppendUploadController;
+use App\Http\Controllers\Shares\Uploads\CancelUploadController;
+use App\Http\Controllers\Shares\Uploads\CreateUploadController;
+use App\Http\Controllers\Shares\Uploads\UploadStatusController;
+use App\Http\Middleware\EnsureTusVersion;
 use App\Livewire\Actions\Logout;
 use Illuminate\Support\Facades\Route;
 
@@ -36,7 +40,15 @@ Route::middleware('auth')
     ->group(function (): void {
         Route::livewire('/', 'pages::shares.show')->name('show');
         Route::livewire('trash', 'pages::shares.trash')->name('trash');
-        Route::post('upload', UploadController::class)->name('upload');
+
+        // Resumable (tus 1.0) uploads: create a session, then chunk bytes into it; the GET route answers the
+        // protocol's HEAD offset probes.
+        Route::middleware(EnsureTusVersion::class)->group(function (): void {
+            Route::post('uploads', CreateUploadController::class)->name('uploads.store');
+            Route::get('uploads/{upload}', UploadStatusController::class)->whereUuid('upload')->name('uploads.show');
+            Route::patch('uploads/{upload}', AppendUploadController::class)->whereUuid('upload')->name('uploads.append');
+            Route::delete('uploads/{upload}', CancelUploadController::class)->whereUuid('upload')->name('uploads.destroy');
+        });
         Route::get('download', DownloadFileController::class)
             ->middleware('throttle:downloads')
             ->name('download');

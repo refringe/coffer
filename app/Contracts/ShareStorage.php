@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace App\Contracts;
 
+use App\Exceptions\UploadOffsetMismatchException;
+use App\Exceptions\UploadOverflowException;
+use App\Exceptions\UploadWriteConflictException;
 use App\Support\Entry;
+use App\Support\PendingUpload;
 use App\Support\TrashedEntry;
 use Carbon\CarbonInterface;
-use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -25,6 +28,12 @@ interface ShareStorage
      * @var list<string>
      */
     public const array RESERVED = ['.trash', '.tmp'];
+
+    /**
+     * Directory beneath the reserved temporary area where in-progress resumable uploads (partial files and their
+     * sidecar manifests) are kept.
+     */
+    public const string UPLOADS = '.tmp/uploads';
 
     /**
      * List the immediate folder and file entries within a directory (the share root when empty), excluding the reserved
@@ -99,12 +108,6 @@ interface ShareStorage
     public function makeDirectory(string $path): void;
 
     /**
-     * Stream an uploaded file into the directory, returning the stored entry. Defaults to the uploaded file's own
-     * client name when none is given.
-     */
-    public function storeUpload(string $directory, UploadedFile $file, ?string $name = null): Entry;
-
-    /**
      * Move (or rename) a file or folder to a new relative path.
      */
     public function move(string $from, string $to): void;
@@ -170,4 +173,48 @@ interface ShareStorage
      * Remove built zip archives under the temporary area older than the cutoff, returning the number removed.
      */
     public function purgeTempBefore(CarbonInterface $cutoff): int;
+
+    /**
+     * Record (create or update) a pending upload's sidecar manifest, creating its empty partial file when the upload is
+     * not yet completed.
+     */
+    public function putPendingUpload(PendingUpload $upload): void;
+
+    /**
+     * Read a pending upload's sidecar manifest, or null when it is missing or unreadable.
+     */
+    public function pendingUpload(string $id): ?PendingUpload;
+
+    /**
+     * The byte offset (current size) of a pending upload's partial file, or null when the partial does not exist.
+     */
+    public function uploadOffset(string $id): ?int;
+
+    /**
+     * The Unix timestamp of a pending upload's last write activity (the partial's mtime, falling back to the sidecar's
+     * mtime), or null when neither file exists.
+     */
+    public function uploadLastActivity(string $id): ?int;
+
+    /**
+     * Append at most $maxBytes from the stream to a pending upload's partial file under an exclusive lock, verifying
+     * that the partial currently sits at $offset. Returns the new offset.
+     *
+     * @param  resource  $stream
+     *
+     * @throws UploadWriteConflictException
+     * @throws UploadOffsetMismatchException
+     * @throws UploadOverflowException
+     */
+    public function appendUpload(string $id, mixed $stream, int $offset, int $maxBytes): int;
+
+    /**
+     * Remove a pending upload's partial file and sidecar manifest.
+     */
+    public function deleteUpload(string $id): void;
+
+    /**
+     * Remove pending uploads whose last write activity predates the cutoff, returning the number purged.
+     */
+    public function purgeUploadsBefore(CarbonInterface $cutoff): int;
 }

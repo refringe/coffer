@@ -6,4 +6,5 @@ use Illuminate\Support\Facades\Schedule;
 
 Schedule::command('shares:purge-trash')->daily();
 Schedule::command('shares:purge-zips')->daily();
+Schedule::command('shares:purge-uploads')->daily();
 Schedule::command('shares:purge-activity')->daily();

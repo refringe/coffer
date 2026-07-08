@@ -6,7 +6,6 @@ use App\Enums\ActivityAction;
 use App\Models\Activity;
 use App\Models\Share;
 use App\Models\User;
-use Illuminate\Http\UploadedFile;
 use Livewire\Livewire;
 
 test('creating a folder records a single activity entry', function (): void {
@@ -78,13 +77,9 @@ test('restoring an entry records activity', function (): void {
 test('uploading a file records activity', function (): void {
     [$user, $share] = shareWithMember();
 
-    $this->actingAs($user)
-        ->post(route('shares.upload', $share), [
-            'file' => UploadedFile::fake()->createWithContent('upload.txt', 'uploaded'),
-            'directory' => '',
-            'on_conflict' => 'keep_both',
-        ])
-        ->assertCreated();
+    $this->actingAs($user);
+
+    tusUpload($share, 'upload.txt', 'uploaded')->assertNoContent();
 
     expect(Activity::query()->where('share_id', $share->id)->where('action', ActivityAction::FileUploaded)->where('subject', 'upload.txt')->exists())->toBeTrue();
 });

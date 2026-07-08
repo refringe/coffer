@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Sleep;
 use Illuminate\Support\Str;
+use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 /*
@@ -130,4 +131,65 @@ function seedFile(Share $share, string $path, string $contents = 'data'): void
 function seedFolder(Share $share, string $path): void
 {
     File::ensureDirectoryExists($share->path.'/'.mb_ltrim($path, '/'));
+}
+
+/**
+ * Encode key/value pairs into a tus Upload-Metadata header ("key base64value" pairs, comma-separated).
+ *
+ * @param  array<string, string>  $pairs
+ */
+function tusMetadata(array $pairs): string
+{
+    return collect($pairs)
+        ->map(fn (string $value, string $key): string => $key.' '.base64_encode($value))
+        ->implode(',');
+}
+
+/**
+ * Open a tus upload session on a share as the currently acting user, returning the raw creation response (its
+ * Location header carries the upload URL).
+ */
+function tusCreate(Share $share, string $name, int $length, string $directory = '', string $onConflict = 'keep_both'): TestResponse
+{
+    return test()->withHeaders([
+        'Tus-Resumable' => '1.0.0',
+        'Upload-Length' => (string) $length,
+        'Upload-Metadata' => tusMetadata(['filename' => $name, 'directory' => $directory, 'on_conflict' => $onConflict]),
+        'Accept' => 'application/json',
+    ])->post(route('shares.uploads.store', $share));
+}
+
+/**
+ * Probe a tus upload URL for its current offset (the protocol's HEAD request) as the currently acting user.
+ */
+function tusHead(string $url): TestResponse
+{
+    return test()->call('HEAD', $url, [], [], [], ['HTTP_TUS_RESUMABLE' => '1.0.0']);
+}
+
+/**
+ * Send one tus chunk to an upload URL as the currently acting user.
+ */
+function tusPatch(string $url, int $offset, string $body): TestResponse
+{
+    return test()->call('PATCH', $url, [], [], [], [
+        'HTTP_TUS_RESUMABLE' => '1.0.0',
+        'HTTP_UPLOAD_OFFSET' => (string) $offset,
+        'CONTENT_TYPE' => 'application/offset+octet-stream',
+    ], $body);
+}
+
+/**
+ * Run a complete tus upload (creation plus a single chunk) on a share as the currently acting user, returning the
+ * final chunk's response.
+ */
+function tusUpload(Share $share, string $name, string $contents, string $directory = '', string $onConflict = 'keep_both'): TestResponse
+{
+    $location = tusCreate($share, $name, mb_strlen($contents, '8bit'), $directory, $onConflict)
+        ->assertCreated()
+        ->headers->get('Location');
+
+    assert(is_string($location));
+
+    return tusPatch($location, 0, $contents);
 }

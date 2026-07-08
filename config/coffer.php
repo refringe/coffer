@@ -20,6 +20,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Upload Chunk Size
+    |--------------------------------------------------------------------------
+    |
+    | The size, in bytes, of each chunk the browser uploader sends while transferring a file (50 MB). Every chunk
+    | must fit inside a single HTTP request, so this value has to stay below PHP's post_max_size and any request-body
+    | limit enforced by a proxy in front of the app.
+    |
+    */
+
+    'upload_chunk_size' => 52428800,
+
+    /*
+    |--------------------------------------------------------------------------
     | Storage Base Directory
     |--------------------------------------------------------------------------
     |
@@ -59,6 +72,19 @@ return [
     */
 
     'zip_ttl_hours' => (int) env('COFFER_ZIP_TTL_HOURS', 24),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Stalled Upload Retention
+    |--------------------------------------------------------------------------
+    |
+    | How many hours an in-progress upload may sit idle (no chunk received) before the scheduled purge removes its
+    | partial file. Idle time is measured from the last received chunk, so a slow multi-day upload survives as long
+    | as it keeps moving. A value of 0 (or empty) disables the purge and keeps partial uploads indefinitely.
+    |
+    */
+
+    'upload_ttl_hours' => (int) env('COFFER_UPLOAD_TTL_HOURS', 48),
 
     /*
     |--------------------------------------------------------------------------

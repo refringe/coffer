@@ -1,12 +1,14 @@
+import * as tus from "tus-js-client";
+
 /**
- * Through-app uploader for the share browser.
+ * Resumable (tus) uploader for the share browser.
  *
- * Resolve any name conclicts via a prompt that maps to the server's `on_conflict` strategies, then POST the file
- * straight to the app, which streams it to the share's local storage directory. Progress is reported by the browser as
- * the body uploads.
+ * Resolve any name conflicts via a prompt that maps to the server's `on_conflict` strategies, then hand the file to
+ * tus-js-client, which streams it to the app in bounded chunks. Each chunk is retried with backoff on transient
+ * failures, and an interrupted upload of the same file resumes from the byte offset the server already holds.
  */
 document.addEventListener("alpine:init", () => {
-    window.Alpine.data("uploader", (uploadUrl, csrf) => ({
+    window.Alpine.data("uploader", (endpoint, csrf, chunkSize) => ({
         items: [],
         dragging: false,
         conflict: null,
@@ -53,14 +55,9 @@ document.addEventListener("alpine:init", () => {
             const index = this.items.push({ id: this.nextId++, name: file.name, progress: 0, status: "uploading" }) - 1;
             const item = this.items[index];
 
-            const form = new FormData();
-            form.append("file", file);
-            form.append("directory", this.$wire.get("path") || "");
-            form.append("on_conflict", onConflict);
-
             try {
-                const status = await this.post(uploadUrl, form, item);
-                item.status = status === "completed" || status === "skipped" ? "done" : "error";
+                await this.tusUpload(file, onConflict, item);
+                item.status = "done";
             } catch (error) {
                 item.status = "error";
             }
@@ -71,41 +68,38 @@ document.addEventListener("alpine:init", () => {
             }
         },
 
-        post(url, form, item) {
+        tusUpload(file, onConflict, item) {
+            const directory = this.$wire.get("path") || "";
+
             return new Promise((resolve, reject) => {
-                const request = new XMLHttpRequest();
-                request.open("POST", url, true);
-                request.setRequestHeader("X-CSRF-TOKEN", csrf);
-                request.setRequestHeader("Accept", "application/json");
+                const upload = new tus.Upload(file, {
+                    endpoint,
+                    chunkSize,
+                    headers: { "X-CSRF-TOKEN": csrf, Accept: "application/json" },
+                    metadata: { filename: file.name, directory, on_conflict: onConflict },
+                    retryDelays: [0, 1000, 3000, 5000],
+                    storeFingerprintForResuming: true,
+                    removeFingerprintOnSuccess: true,
+                    onProgress: (sent, total) => {
+                        item.progress = total > 0 ? Math.round((sent / total) * 100) : 100;
+                    },
+                    onSuccess: () => resolve(),
+                    onError: (error) => reject(error),
+                });
 
-                request.upload.onprogress = (event) => {
-                    if (event.lengthComputable) {
-                        item.progress = Math.round((event.loaded / event.total) * 100);
-                    }
-                };
+                // Resume an earlier interrupted upload of this same file (fingerprints cover name, size, and
+                // endpoint, so the stored uploads are filtered to the current folder). A stale upload URL is
+                // harmless: the server answers 404/410 and the client falls back to a fresh creation.
+                upload
+                    .findPreviousUploads()
+                    .then((previous) => {
+                        const match = previous.find((candidate) => (candidate.metadata?.directory ?? "") === directory);
 
-                request.onload = () => {
-                    // A 2xx is necessary but not sufficient: a session that expired mid-upload is redirected to a 200
-                    // login page, so only a JSON body carrying a known status counts as a real upload result.
-                    if (request.status >= 200 && request.status < 300) {
-                        try {
-                            const status = JSON.parse(request.responseText).status;
-
-                            if (typeof status === "string") {
-                                resolve(status);
-
-                                return;
-                            }
-                        } catch (error) {
-                            // Falls through to the failure path below.
+                        if (match) {
+                            upload.resumeFromPreviousUpload(match);
                         }
-                    }
-
-                    reject(new Error("Upload failed"));
-                };
-
-                request.onerror = () => reject(new Error("Upload failed"));
-                request.send(form);
+                    })
+                    .finally(() => upload.start());
             });
         },
 

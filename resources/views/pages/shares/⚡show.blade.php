@@ -581,7 +581,7 @@ new class extends Component {
 <div
     class="flex w-full flex-col gap-6"
     @if ($this->canModify)
-        x-data="uploader(@js(route('shares.upload', $share)), @js(csrf_token()))"
+        x-data="uploader(@js(route('shares.uploads.store', $share)), @js(csrf_token()), @js(config('coffer.upload_chunk_size')))"
         x-on:dragover.prevent="dragging = true"
         x-on:dragleave.prevent="dragging = false"
         x-on:drop.prevent="onDrop($event)"

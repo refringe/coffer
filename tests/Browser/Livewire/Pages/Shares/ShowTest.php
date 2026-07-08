@@ -90,3 +90,34 @@ test('a guest is redirected to the GitHub login page', function (): void {
         ->assertDontSee('Private Share')
         ->assertSee('Sign in to Coffer');
 });
+
+test('a file uploads through the resumable uploader in chunks', function (): void {
+    // A 1 KB chunk size splits the 5 KB file below into five PATCH requests, driving the real tus client through
+    // creation, sequential chunk appends, and promotion.
+    config(['coffer.upload_chunk_size' => 1024]);
+
+    $user = User::factory()->create();
+    $share = Share::factory()->create(['name' => 'Upload Share']);
+
+    $this->actingAs($user);
+
+    $page = visit(route('shares.show', $share))->assertSee('Upload');
+
+    // The file is built inside the page (the Playwright client is remote, so a local path cannot be attached) and
+    // handed to the hidden input, whose change event starts the uploader.
+    $page->script(<<<'JS'
+        (() => {
+            const input = document.querySelector('input[type="file"]');
+            const transfer = new DataTransfer();
+            transfer.items.add(new File([new Uint8Array(5120).fill(97)], 'browser-upload.txt', { type: 'text/plain' }));
+            input.files = transfer.files;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+        })()
+    JS);
+
+    $page->waitForText('Done')
+        ->assertNoJavaScriptErrors()
+        ->waitForText('browser-upload.txt');
+
+    expect(file_get_contents($share->path.'/browser-upload.txt'))->toBe(str_repeat('a', 5 * 1024));
+});

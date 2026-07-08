@@ -6,24 +6,26 @@ namespace App\Services;
 
 use App\Contracts\ShareStorage;
 use App\Enums\NodeType;
+use App\Exceptions\UploadOffsetMismatchException;
+use App\Exceptions\UploadOverflowException;
+use App\Exceptions\UploadWriteConflictException;
 use App\Support\Entry;
+use App\Support\PendingUpload;
 use App\Support\TrashedEntry;
 use Carbon\CarbonInterface;
 use Illuminate\Filesystem\FilesystemAdapter;
-use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 use League\Flysystem\UnableToReadFile;
 use League\Flysystem\UnableToRetrieveMetadata;
-use League\Flysystem\UnableToWriteFile;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * A share's storage backed by a real local directory tree. Every browser-facing path is relative to the share's own
- * root; the reserved `.trash` (recycle bin) and `.tmp` (built zip archives) directories live alongside the browsable
- * tree and are hidden from every listing, search, and usage walk.
+ * root; the reserved `.trash` (recycle bin) and `.tmp` (built zip archives and in-progress uploads) directories live
+ * alongside the browsable tree and are hidden from every listing, search, and usage walk.
  */
 final readonly class LocalShareStorage implements ShareStorage
 {
@@ -185,22 +187,6 @@ final readonly class LocalShareStorage implements ShareStorage
     public function makeDirectory(string $path): void
     {
         $this->disk->makeDirectory($this->guard($path));
-    }
-
-    public function storeUpload(string $directory, UploadedFile $file, ?string $name = null): Entry
-    {
-        $directory = $this->guard($directory);
-        $name ??= $file->getClientOriginalName();
-
-        try {
-            $path = $this->disk->putFileAs($directory, $file, $name);
-        } catch (UnableToWriteFile) {
-            $path = false;
-        }
-
-        throw_unless(is_string($path), RuntimeException::class, 'The uploaded file could not be stored.');
-
-        return $this->entryFor($path, false);
     }
 
     public function move(string $from, string $to): void
@@ -384,6 +370,176 @@ final readonly class LocalShareStorage implements ShareStorage
         foreach ($this->strings($this->disk->files(self::ZIP_DIR)) as $path) {
             if (@filemtime($this->disk->path($path)) < $cutoff->getTimestamp()) {
                 $this->disk->delete($path);
+                $purged++;
+            }
+        }
+
+        return $purged;
+    }
+
+    public function putPendingUpload(PendingUpload $upload): void
+    {
+        $this->disk->makeDirectory(self::UPLOADS);
+
+        // A completed upload's partial has already been promoted out of the temporary area; only a still-pending
+        // upload gets its (empty) partial created here.
+        $partial = $this->disk->path(self::UPLOADS.'/'.$upload->id);
+
+        if ($upload->completedAt === null && ! file_exists($partial)) {
+            touch($partial);
+        }
+
+        $this->disk->put(self::UPLOADS.'/'.$upload->id.'.json', (string) json_encode([
+            'id' => $upload->id,
+            'user_id' => $upload->userId,
+            'name' => $upload->name,
+            'directory' => $upload->directory,
+            'length' => $upload->length,
+            'on_conflict' => $upload->onConflict,
+            'created_at' => $upload->createdAt,
+            'completed_at' => $upload->completedAt,
+        ]));
+    }
+
+    public function pendingUpload(string $id): ?PendingUpload
+    {
+        $path = self::UPLOADS.'/'.$id.'.json';
+
+        if (! $this->disk->exists($path)) {
+            return null;
+        }
+
+        $data = json_decode((string) $this->disk->get($path), true);
+
+        if (! is_array($data)
+            || ! is_string($data['id'] ?? null)
+            || ! is_string($data['name'] ?? null)
+            || ! is_numeric($data['user_id'] ?? null)
+            || ! is_numeric($data['length'] ?? null)) {
+            return null;
+        }
+
+        return new PendingUpload(
+            id: $data['id'],
+            userId: (int) $data['user_id'],
+            name: $data['name'],
+            directory: is_string($data['directory'] ?? null) ? $data['directory'] : '',
+            length: (int) $data['length'],
+            onConflict: is_string($data['on_conflict'] ?? null) ? $data['on_conflict'] : 'keep_both',
+            createdAt: is_numeric($data['created_at'] ?? null) ? (int) $data['created_at'] : 0,
+            completedAt: is_numeric($data['completed_at'] ?? null) ? (int) $data['completed_at'] : null,
+        );
+    }
+
+    public function uploadOffset(string $id): ?int
+    {
+        $absolute = $this->disk->path(self::UPLOADS.'/'.$id);
+
+        clearstatcache(true, $absolute);
+        $size = @filesize($absolute);
+
+        return $size === false ? null : $size;
+    }
+
+    public function uploadLastActivity(string $id): ?int
+    {
+        $partial = @filemtime($this->disk->path(self::UPLOADS.'/'.$id));
+
+        if ($partial !== false) {
+            return $partial;
+        }
+
+        $sidecar = @filemtime($this->disk->path(self::UPLOADS.'/'.$id.'.json'));
+
+        return $sidecar === false ? null : $sidecar;
+    }
+
+    public function appendUpload(string $id, mixed $stream, int $offset, int $maxBytes): int
+    {
+        throw_unless(is_resource($stream), RuntimeException::class, 'The upload body stream is not readable.');
+
+        throw_if($offset < 0, UploadOffsetMismatchException::class, 'The declared offset does not match the partial file.');
+
+        $absolute = $this->disk->path(self::UPLOADS.'/'.$id);
+
+        // 'c' opens for writing without truncating, so a retried chunk never wipes bytes already on disk.
+        $handle = @fopen($absolute, 'cb');
+        throw_unless(is_resource($handle), RuntimeException::class, 'The upload partial could not be opened.');
+
+        try {
+            // The lock is advisory and released automatically when the handle closes, so a crashed request can never
+            // leave the upload permanently locked.
+            throw_unless(flock($handle, LOCK_EX | LOCK_NB), UploadWriteConflictException::class, 'Another request is already writing to this upload.');
+
+            clearstatcache(true, $absolute);
+            $stats = fstat($handle);
+            $size = is_array($stats) ? (int) $stats['size'] : 0;
+
+            throw_unless($size === $offset, UploadOffsetMismatchException::class, 'The declared offset does not match the partial file.');
+
+            fseek($handle, 0, SEEK_END);
+
+            $written = 0;
+            $remaining = $maxBytes;
+
+            while ($remaining > 0 && ! feof($stream)) {
+                $chunk = fread($stream, min(1_048_576, $remaining));
+
+                if ($chunk === false || $chunk === '') {
+                    break;
+                }
+
+                // Chunks are raw bytes, so lengths are measured in bytes ('8bit'), never in multibyte characters.
+                $bytes = mb_strlen($chunk, '8bit');
+
+                throw_unless(fwrite($handle, $chunk) === $bytes, RuntimeException::class, 'The upload chunk could not be written.');
+
+                $written += $bytes;
+                $remaining -= $bytes;
+            }
+
+            // Bytes remaining past the declared total length are refused and the partial rolled back to its pre-append
+            // offset, so an overrunning client cannot grow an upload beyond the size it declared.
+            $extra = ($remaining <= 0 && ! feof($stream)) ? fread($stream, 1) : '';
+
+            if (is_string($extra) && $extra !== '') {
+                fflush($handle);
+                ftruncate($handle, $offset);
+
+                throw new UploadOverflowException('The chunk carries more bytes than the upload declared.');
+            }
+
+            fflush($handle);
+
+            return $offset + $written;
+        } finally {
+            flock($handle, LOCK_UN);
+            fclose($handle);
+        }
+    }
+
+    public function deleteUpload(string $id): void
+    {
+        $this->disk->delete(self::UPLOADS.'/'.$id);
+        $this->disk->delete(self::UPLOADS.'/'.$id.'.json');
+    }
+
+    public function purgeUploadsBefore(CarbonInterface $cutoff): int
+    {
+        $purged = 0;
+
+        // A partial and its sidecar share an id, so stripping the sidecar suffix folds both into one upload; orphan
+        // partials with no sidecar (and completed sidecars with no partial) are swept by the same walk.
+        $ids = $this->strings($this->disk->files(self::UPLOADS))
+            ->map(fn (string $path): string => basename($path, '.json'))
+            ->unique()
+            ->values();
+
+        foreach ($ids as $id) {
+            $activity = $this->uploadLastActivity($id);
+
+            if ($activity !== null && $activity < $cutoff->getTimestamp()) {
+                $this->deleteUpload($id);
                 $purged++;
             }
         }
